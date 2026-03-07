@@ -1,0 +1,14 @@
+Name,Company,Job Title,LinkedIn,Status,Tags,CampaignName,Sender Name
+John Doe,Acme Inc,Engineering Manager,https://linkedin.com/in/johndoe,Contacted,,Q1 Outreach,Alex Chen
+Jane Smith,Beta Corp,Head of Product,https://linkedin.com/in/janesmith,In Campaign,,"IND_LIST 5,6,7",Jamie Lee
+Same Person,Merge Test,CTO,https://linkedin.com/in/sameperson,Request Sent,,Campaign A,Sender One
+Same Person,Merge Test,CTO,https://linkedin.com/in/sameperson,Replied,Interested,Campaign B,Sender Two
+Sarah Lee,Gamma Ltd,VP Sales,https://linkedin.com/in/sarahlee,Replied,nurturing,Enterprise Leads,Alex Chen
+Mike Brown,Delta Co,Manager,https://linkedin.com/in/mikebrown,Replied,Not interested,Enterprise Leads,Jamie Lee
+Anna Wu,Epsilon Inc,Director,https://linkedin.com/in/annawu,Replied,Non ICP,SMB Outreach,Alex Chen
+Tom Davis,Zeta LLC,Lead,https://linkedin.com/in/tomdavis,Not Contacted,,Q1 Outreach,Jamie Lee
+Lisa Park,Eta Group,VP Marketing,https://linkedin.com/in/lisapark,failed,,Q2 Campaign,Alex Chen
+Duplicate Row,Skip Ltd,Role,https://linkedin.com/in/duplicate,duplicate,,Test Campaign,Test Sender
+Emma Wilson,Theta Inc,Director,https://linkedin.com/in/emmawilson,Replied,Scheduled,IND_LIST 5,Sender One
+Chris Lee,Iota Corp,Manager,https://linkedin.com/in/chrislee,Replied,Already in pipeline,IND_LIST 6,Sender Two
+Alex Kim,Kappa Co,Head of Ops,https://linkedin.com/in/alexkim,not accepted,,IND_LIST 7,Jamie Lee
