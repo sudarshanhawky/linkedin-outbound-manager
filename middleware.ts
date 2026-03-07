@@ -1,23 +1,13 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const hasClerkKeys =
-  typeof process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY === "string" &&
-  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.length > 0;
-
-let clerkHandler: ReturnType<typeof clerkMiddleware> | null = null;
-try {
-  clerkHandler = clerkMiddleware();
-} catch {
-  clerkHandler = null;
-}
-
-export function middleware(req: NextRequest) {
-  if (hasClerkKeys && clerkHandler) {
-    return clerkHandler(req, {} as NextFetchEvent);
+export async function middleware(req: NextRequest) {
+  const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  if (!publishableKey || publishableKey.length === 0) {
+    return NextResponse.next();
   }
-  return NextResponse.next();
+  const { clerkMiddleware } = await import("@clerk/nextjs/server");
+  return clerkMiddleware()(req, {} as NextFetchEvent);
 }
 
 export const config = {
