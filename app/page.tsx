@@ -1,5 +1,6 @@
 "use client";
 
+import { SignOutButton, useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import type { Contact, ContactStatus } from "./import-utils";
@@ -112,6 +113,7 @@ const STATUS_RULES_MODAL_CONTENT = (
 );
 
 export default function Home() {
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
@@ -120,6 +122,14 @@ export default function Home() {
     setUserName(typeof window !== "undefined" ? localStorage.getItem(USER_NAME_KEY) || "User" : "User");
     setHydrated(true);
   }, []);
+
+  // Clear display name when user is signed out (e.g. after SignOutButton redirect)
+  useEffect(() => {
+    if (hydrated && authLoaded && !isSignedIn && typeof window !== "undefined") {
+      localStorage.removeItem(USER_NAME_KEY);
+      setUserName("User");
+    }
+  }, [hydrated, authLoaded, isSignedIn]);
 
   const setContactsAndPersist = useCallback((next: Contact[] | ((prev: Contact[]) => Contact[])) => {
     setContacts((prev) => {
@@ -516,13 +526,6 @@ export default function Home() {
     URL.revokeObjectURL(url);
   }, [contactsToExport]);
 
-  const handleSignOut = useCallback(() => {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(USER_NAME_KEY);
-      window.location.reload();
-    }
-  }, []);
-
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Top nav */}
@@ -562,13 +565,14 @@ export default function Home() {
             >
               {userName}
             </button>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-            >
-              Sign out
-            </button>
+            <SignOutButton redirectUrl="/">
+              <button
+                type="button"
+                className="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+              >
+                Sign out
+              </button>
+            </SignOutButton>
           </div>
         </div>
       </header>
