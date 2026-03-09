@@ -130,23 +130,44 @@ const STATUS_RULES_MODAL_CONTENT = (
   </div>
 );
 
-async function loadContactsFromSupabase(): Promise<Contact[]> {
-  if (typeof window === "undefined") return [];
+const SUPABASE_FETCH_PAGE_SIZE = 1000; // PostgREST default max per request
+
+async function loadContactsFromSupabase(): Promise<{
+  contacts: Contact[];
+  supabaseUnreachable: boolean;
+}> {
+  if (typeof window === "undefined") return { contacts: [], supabaseUnreachable: false };
   const supabase = getSupabase();
   if (supabase) {
     try {
-      const { data, error } = await supabase.from(SUPABASE_TABLE).select("*").order("id");
-      if (error) {
-        console.error("Supabase load error:", error);
-        return loadContactsFromLocal();
+      const allRows: ContactRow[] = [];
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from(SUPABASE_TABLE)
+          .select("*")
+          .order("id")
+          .range(offset, offset + SUPABASE_FETCH_PAGE_SIZE - 1);
+        if (error) {
+          console.error("Supabase load error:", error);
+          return { contacts: loadContactsFromLocal(), supabaseUnreachable: true };
+        }
+        const page = data ?? [];
+        allRows.push(...(page as ContactRow[]));
+        hasMore = page.length === SUPABASE_FETCH_PAGE_SIZE;
+        offset += SUPABASE_FETCH_PAGE_SIZE;
       }
-      return (data ?? []).map((row: ContactRow) => rowToContact(row));
+      return {
+        contacts: allRows.map((row: ContactRow) => rowToContact(row)),
+        supabaseUnreachable: false,
+      };
     } catch (e) {
       console.error("Supabase load error:", e);
-      return loadContactsFromLocal();
+      return { contacts: loadContactsFromLocal(), supabaseUnreachable: true };
     }
   }
-  return loadContactsFromLocal();
+  return { contacts: loadContactsFromLocal(), supabaseUnreachable: false };
 }
 
 function loadContactsFromLocal(): Contact[] {
@@ -209,13 +230,15 @@ export default function Home() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [hydrated, setHydrated] = useState(false);
   const [supabaseConfigured, setSupabaseConfigured] = useState(false);
+  const [supabaseUnreachable, setSupabaseUnreachable] = useState(false);
 
   useEffect(() => {
     setUserName(typeof window !== "undefined" ? localStorage.getItem(USER_NAME_KEY) || "User" : "User");
     setSupabaseConfigured(!!getSupabase());
-    loadContactsFromSupabase().then((list) => {
+    loadContactsFromSupabase().then(({ contacts: list, supabaseUnreachable: unreachable }) => {
       setContacts(list);
       setHydrated(true);
+      setSupabaseUnreachable(unreachable);
     });
   }, []);
 
@@ -621,6 +644,11 @@ export default function Home() {
       {hydrated && !supabaseConfigured && (
         <div className="bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-sm text-amber-900">
           Data is saved in this browser only. Add <code className="rounded bg-amber-200 px-1">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="rounded bg-amber-200 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to <code className="rounded bg-amber-200 px-1">.env.local</code> and restart the app to sync to the Supabase table.
+        </div>
+      )}
+      {hydrated && supabaseConfigured && supabaseUnreachable && (
+        <div className="border-b border-orange-300 bg-orange-100 px-4 py-2 text-center text-sm text-orange-900">
+          Can&apos;t reach Supabase (network or project paused). Showing local data. Check the dashboard at supabase.com and restore the project if needed.
         </div>
       )}
       {/* Top nav */}
