@@ -181,15 +181,27 @@ async function saveContactsToSupabase(contacts: Contact[]) {
   }
 }
 
+const SUPABASE_DELETE_CHUNK_SIZE = 50;
+
 async function deleteContactsFromSupabase(ids: string[]): Promise<void> {
   if (typeof window === "undefined" || ids.length === 0) return;
   const supabase = getSupabase();
   if (!supabase) return;
-  try {
-    const { error } = await supabase.from(SUPABASE_TABLE).delete().in("id", ids);
-    if (error) console.error("Supabase delete error:", error);
-  } catch (e) {
-    console.error("Supabase delete error:", e);
+  for (let i = 0; i < ids.length; i += SUPABASE_DELETE_CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + SUPABASE_DELETE_CHUNK_SIZE);
+    try {
+      const query =
+        chunk.length === 1
+          ? supabase.from(SUPABASE_TABLE).delete().eq("id", chunk[0])
+          : supabase.from(SUPABASE_TABLE).delete().in("id", chunk);
+      const { error } = await query;
+      if (error) {
+        console.error("Supabase delete error:", error.message ?? error.code ?? JSON.stringify(error));
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("Supabase delete error:", msg, e);
+    }
   }
 }
 
