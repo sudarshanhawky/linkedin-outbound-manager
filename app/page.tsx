@@ -1,6 +1,5 @@
 "use client";
 
-import { SignOutButton, useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import type { Contact, ContactStatus } from "./import-utils";
@@ -11,9 +10,11 @@ import {
   mergeRowsByLinkedInUrl,
   parseWorkbookFile,
 } from "./import-utils";
+import { getSupabase } from "./supabase";
 
-const STORAGE_KEY = "linkedin-outbound-contacts";
 const USER_NAME_KEY = "linkedin-outbound-username";
+const CONTACTS_LOCAL_KEY = "linkedin-outbound-contacts";
+const SUPABASE_TABLE = "contacts";
 
 const STATUS_OPTIONS: ContactStatus[] = [
   "Not Contacted",
@@ -25,25 +26,42 @@ const STATUS_OPTIONS: ContactStatus[] = [
   "Wrong Person",
 ];
 
-function loadContactsFromStorage(): Contact[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Contact[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+// Supabase types for DB row (snake_case)
+type ContactRow = {
+  id: string;
+  name: string;
+  company: string;
+  job_title: string;
+  linkedin: string;
+  status: string;
+  campaigns: string[];
+  senders: string[];
+};
+
+function rowToContact(row: ContactRow): Contact {
+  return {
+    id: row.id,
+    name: row.name ?? "",
+    company: row.company ?? "",
+    jobTitle: row.job_title ?? "",
+    linkedIn: row.linkedin ?? "",
+    status: row.status as Contact["status"],
+    campaigns: Array.isArray(row.campaigns) ? row.campaigns : [],
+    senders: Array.isArray(row.senders) ? row.senders : [],
+  };
 }
 
-function saveContactsToStorage(contacts: Contact[]) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
-  } catch {
-    // ignore
-  }
+function contactToRow(c: Contact): ContactRow {
+  return {
+    id: c.id,
+    name: c.name,
+    company: c.company,
+    job_title: c.jobTitle,
+    linkedin: c.linkedIn,
+    status: c.status,
+    campaigns: c.campaigns,
+    senders: c.senders,
+  };
 }
 
 const SORT_FIELDS = [
@@ -112,29 +130,87 @@ const STATUS_RULES_MODAL_CONTENT = (
   </div>
 );
 
+async function loadContactsFromSupabase(): Promise<Contact[]> {
+  if (typeof window === "undefined") return [];
+  const supabase = getSupabase();
+  if (supabase) {
+    try {
+      const { data, error } = await supabase.from(SUPABASE_TABLE).select("*").order("id");
+      if (error) {
+        console.error("Supabase load error:", error);
+        return loadContactsFromLocal();
+      }
+      return (data ?? []).map((row: ContactRow) => rowToContact(row));
+    } catch (e) {
+      console.error("Supabase load error:", e);
+      return loadContactsFromLocal();
+    }
+  }
+  return loadContactsFromLocal();
+}
+
+function loadContactsFromLocal(): Contact[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CONTACTS_LOCAL_KEY);
+    if (!raw) return [];
+    const rows: ContactRow[] = JSON.parse(raw);
+    return Array.isArray(rows) ? rows.map((row) => rowToContact(row)) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveContactsToSupabase(contacts: Contact[]) {
+  if (typeof window === "undefined") return;
+  const supabase = getSupabase();
+  const rows = contacts.map(contactToRow);
+  if (supabase) {
+    try {
+      const { error } = await supabase.from(SUPABASE_TABLE).upsert(rows, { onConflict: "id" });
+      if (error) console.error("Supabase save error:", error);
+    } catch (e) {
+      console.error("Supabase save error:", e);
+    }
+  } else {
+    try {
+      localStorage.setItem(CONTACTS_LOCAL_KEY, JSON.stringify(rows));
+    } catch (e) {
+      console.error("LocalStorage save error:", e);
+    }
+  }
+}
+
+async function deleteContactsFromSupabase(ids: string[]): Promise<void> {
+  if (typeof window === "undefined" || ids.length === 0) return;
+  const supabase = getSupabase();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase.from(SUPABASE_TABLE).delete().in("id", ids);
+    if (error) console.error("Supabase delete error:", error);
+  } catch (e) {
+    console.error("Supabase delete error:", e);
+  }
+}
+
 export default function Home() {
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  const [supabaseConfigured, setSupabaseConfigured] = useState(false);
 
   useEffect(() => {
-    setContacts(loadContactsFromStorage());
     setUserName(typeof window !== "undefined" ? localStorage.getItem(USER_NAME_KEY) || "User" : "User");
-    setHydrated(true);
+    setSupabaseConfigured(!!getSupabase());
+    loadContactsFromSupabase().then((list) => {
+      setContacts(list);
+      setHydrated(true);
+    });
   }, []);
-
-  // Clear display name when user is signed out (e.g. after SignOutButton redirect)
-  useEffect(() => {
-    if (hydrated && authLoaded && !isSignedIn && typeof window !== "undefined") {
-      localStorage.removeItem(USER_NAME_KEY);
-      setUserName("User");
-    }
-  }, [hydrated, authLoaded, isSignedIn]);
 
   const setContactsAndPersist = useCallback((next: Contact[] | ((prev: Contact[]) => Contact[])) => {
     setContacts((prev) => {
       const nextList = typeof next === "function" ? next(prev) : next;
-      saveContactsToStorage(nextList);
+      saveContactsToSupabase(nextList).catch(() => {});
       return nextList;
     });
   }, []);
@@ -328,9 +404,11 @@ export default function Home() {
     setSelectedIds(next);
   };
 
-  const bulkDelete = () => {
-    if (!confirm(`Delete ${selectedIds.size} contact(s)?`)) return;
-    setContactsAndPersist((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+  const bulkDelete = async () => {
+    const idsToDelete = Array.from(selectedIds);
+    if (idsToDelete.length === 0 || !confirm(`Delete ${idsToDelete.length} contact(s)?`)) return;
+    await deleteContactsFromSupabase(idsToDelete);
+    setContactsAndPersist((prev) => prev.filter((c) => !idsToDelete.includes(c.id)));
     setSelectedIds(new Set());
   };
 
@@ -467,7 +545,7 @@ export default function Home() {
     } finally {
       setIsImporting(false);
     }
-  }, [importWorkbook, importSelectedSheets, contacts]);
+  }, [importWorkbook, importSelectedSheets, contacts, setContactsAndPersist]);
 
   const closeImportModal = useCallback(() => {
     if (isImporting) return;
@@ -528,6 +606,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {hydrated && !supabaseConfigured && (
+        <div className="bg-amber-100 border-b border-amber-300 px-4 py-2 text-center text-sm text-amber-900">
+          Data is saved in this browser only. Add <code className="rounded bg-amber-200 px-1">NEXT_PUBLIC_SUPABASE_URL</code> and <code className="rounded bg-amber-200 px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> to <code className="rounded bg-amber-200 px-1">.env.local</code> and restart the app to sync to the Supabase table.
+        </div>
+      )}
       {/* Top nav */}
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-14 w-full max-w-[1400px] items-center justify-between px-4 sm:px-6 lg:px-8">
@@ -565,14 +648,6 @@ export default function Home() {
             >
               {userName}
             </button>
-            <SignOutButton redirectUrl="/">
-              <button
-                type="button"
-                className="rounded-lg px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-              >
-                Sign out
-              </button>
-            </SignOutButton>
           </div>
         </div>
       </header>
